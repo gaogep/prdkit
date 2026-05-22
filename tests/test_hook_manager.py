@@ -11,11 +11,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-
-
 def _run_hook(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PYTHONPATH": str(SRC)}
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
     return subprocess.run(
         [sys.executable, "-m", "prdkit.hook_manager", *args],
         cwd=cwd,
@@ -111,7 +108,7 @@ class HookManagerTests(unittest.TestCase):
 
 class PathsTests(unittest.TestCase):
     def test_list_resources_includes_core_keys(self) -> None:
-        sys.path.insert(0, str(SRC))
+        sys.path.insert(0, str(ROOT))
         from prdkit.paths import list_resources, resolve
 
         keys = list_resources()

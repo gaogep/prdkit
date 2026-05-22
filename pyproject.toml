@@ -19,7 +19,7 @@ prdkit-create-md = "prdkit.create_md:main"
 prdkit-html = "prdkit.html_tool:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/prdkit"]
+packages = ["prdkit"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/prdkit", "README.md", "pyproject.toml"]
+only-include = ["prdkit", "README.md", "pyproject.toml", "LICENSE"]

@@ -11,8 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
 
 from prdkit.html_tool import (  # noqa: E402
     SLOT_END,
@@ -271,7 +270,7 @@ class HtmlToolCliTests(unittest.TestCase):
     def test_init_writes_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
-            env = {**os.environ, "PYTHONPATH": str(SRC)}
+            env = {**os.environ, "PYTHONPATH": str(ROOT)}
             result = subprocess.run(
                 [
                     sys.executable,
@@ -302,7 +301,7 @@ class HtmlToolCliTests(unittest.TestCase):
     def test_validate_after_init(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
-            env = {**os.environ, "PYTHONPATH": str(SRC)}
+            env = {**os.environ, "PYTHONPATH": str(ROOT)}
             subprocess.run(
                 [
                     sys.executable,

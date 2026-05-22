@@ -131,7 +131,7 @@ prdkit-html init --output-dir <output_dir> --basename <basename> --shell <系统
 2. 片段**禁止** `<style>`、**`style=` 内联**、`<script>`、`.app-layout` / 侧栏 / 顶栏壳。
 3. 全页**仅一份** `proto-runtime.js`（init 注入）；禁止在 slot 再写脚本。
 4. 多屏用 **Tab**（`set-proto-page`），禁止每功能整包覆盖 slot 或重复粘贴整页原型。
-5. 说明区每功能须写「见中原型 → Tab：**xxx**」；目录链可加 `data-proto-tab="<tab-id>"`。
+5. 有界面的功能：说明区写「见中原型 → Tab：**xxx**」；目录加 `data-proto-tab`。纯后端/接口/状态机无界面：写 `proto-exempt` 或关键词（见 `prd-check`），**可不**关联原型。
 6. 终稿前执行 `prdkit-html validate` 须通过。
 
 # 🛑 set-proto-page 协议
@@ -176,10 +176,12 @@ prdkit-html init --output-dir <output_dir> --basename <basename> --shell <系统
 prdkit-html validate
 ```
 
-**必须** 按 `prd-check` Skill 执行三栏一致性（`check-consistency --fix` → 处理剩余项 → 再 `validate`）。
+**必须** 按 `prd-check` Skill：先 `check-consistency` 列出 **A/B/C 异常清单**；用户确认编号后再 `--fix-letters`（勿默认全量 `--fix`）。
 
 ```bash
-prdkit-html check-consistency --fix
+prdkit-html check-consistency
+# 用户确认后，例如修复 B、C：
+prdkit-html check-consistency --fix-letters B,C
 prdkit-html validate
 prdkit-hook transit completed_create_or_modify
 ```

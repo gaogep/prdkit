@@ -92,10 +92,11 @@ Read `.memory/prd_index.md`、`prd_output.json`、目标 HTML、`reference/proto
 prdkit-html validate
 ```
 
-**必须** 按 `prd-check` Skill：`check-consistency --fix` → 处理无法自动修项 → 再 `validate`。
+**必须** 按 `prd-check` Skill：先 `check-consistency` 输出 **A/B/C 清单** 供确认；用户回复编号后 `--fix-letters`，再 `validate`。
 
 ```bash
-prdkit-html check-consistency --fix
+prdkit-html check-consistency
+prdkit-html check-consistency --fix-letters B,C,D
 prdkit-html validate
 prdkit-hook transit completed_create_or_modify
 ```

@@ -877,7 +877,12 @@ def cmd_check_consistency(args: argparse.Namespace) -> int:
 
     html_path = resolve_html_path(args.html)
     index_path = Path(args.index) if args.index else INDEX_PATH
-    data = run_check(html_path, index_path, apply=args.fix)
+    data = run_check(
+        html_path,
+        index_path,
+        apply=args.fix and not getattr(args, "fix_letters", None),
+        fix_letters=getattr(args, "fix_letters", None),
+    )
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
@@ -951,7 +956,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chk_p.add_argument("--html", help="目标 HTML（默认读 prd_output.json）")
     chk_p.add_argument("--index", help="prd_index 路径（默认 .memory/prd_index.md）")
-    chk_p.add_argument("--fix", action="store_true", help="应用可安全自动修复后写回 HTML")
+    chk_p.add_argument("--fix", action="store_true", help="自动修复全部可安全项并写回 HTML")
+    chk_p.add_argument(
+        "--fix-letters",
+        metavar="IDS",
+        help='仅修复指定编号，如 "B,C,D" 或 "B C D"；可与用户确认后的回复一致',
+    )
     chk_p.add_argument("--json", action="store_true", help="JSON 输出")
     chk_p.set_defaults(func=cmd_check_consistency)
 

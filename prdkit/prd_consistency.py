@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from prdkit.html_tool import MARKERS, SLOT_END, SLOT_START, replace_between_markers, validate_shell_structure
 
 INDEX_PATH = Path(".memory/prd_index.md")
+REPORT_PATH = Path(".memory/prd_check_latest.json")
 
 # 模板占位 / 明显编造（不含已标注 TODO）
 FABRICATION_RE = re.compile(
@@ -23,6 +24,21 @@ FABRICATION_RE = re.compile(
 )
 
 STRUCTURAL_SEC = frozenset({"sec-1", "sec-2", "sec-1-1", "sec-2-1"})
+
+# 说明区为后端/接口/状态机类需求时可不关联原型（见 is_proto_exempt_section）
+BACKEND_LOGIC_RE = re.compile(
+    r"(?:"
+    r"后端逻辑|后端接口|后端服务|"
+    r"纯接口|接口调用|接口逻辑|"
+    r"状态机|状态变化|状态流转|状态迁移|"
+    r"无(?:需|须)?(?:界面|原型|高保真)|"
+    r"不(?:需|用|关联|出)(?:原型|界面|高保真)|"
+    r"(?:仅|只)(?:后端|服务端|接口)|"
+    r"服务端逻辑|"
+    r"\bAPI\b|RESTful?|webhook|消息队列|定时任务|批处理"
+    r")",
+    re.I,
+)
 
 PANEL_ORDER = ("toc", "proto", "spec")
 
@@ -46,6 +62,41 @@ class Issue:
     message: str
     auto_fixable: bool = False
     context: dict = field(default_factory=dict)
+    letter: str = ""  # 清单编号 A、B、C…（供用户确认后选择性修复）
+
+
+def _index_to_letter(index: int) -> str:
+    """0 → A, 25 → Z, 26 → AA。"""
+    n = index + 1
+    chars: list[str] = []
+    while n:
+        n, rem = divmod(n - 1, 26)
+        chars.append(chr(65 + rem))
+    return "".join(reversed(chars))
+
+
+def assign_issue_letters(issues: list[Issue]) -> list[Issue]:
+    ordered = sorted(issues, key=lambda i: (0 if i.severity == "error" else 1, i.code, i.message))
+    return [replace(it, letter=_index_to_letter(i)) for i, it in enumerate(ordered)]
+
+
+def parse_fix_letters(text: str) -> set[str]:
+    """解析用户输入：B C D / B,C,D / 全部 / all。"""
+    raw = text.strip()
+    if not raw:
+        return set()
+    if raw.lower() in {"全部", "all", "*"}:
+        return set()  # 空集表示「全部可自动修」
+    parts = re.split(r"[\s,，、;；]+", raw.upper())
+    return {p.strip() for p in parts if re.fullmatch(r"[A-Z]{1,3}", p.strip())}
+
+
+def save_check_report(data: dict, cwd: Path | None = None) -> Path:
+    base = cwd or Path.cwd()
+    path = base / REPORT_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def _between(html: str, start: str, end: str) -> str:
@@ -156,6 +207,26 @@ def parse_index_features(index_text: str) -> list[str]:
 def _tab_label_match(tab_id: str, label: str, ref: str) -> bool:
     ref_l = ref.lower().strip()
     return ref_l == tab_id.lower() or ref_l == label.lower() or ref_l in label.lower()
+
+
+def _section_plain_text(sec: dict[str, str]) -> str:
+    body_plain = re.sub(r"<[^>]+>", " ", sec.get("body", ""))
+    return f"{sec.get('title', '')}\n{body_plain}"
+
+
+def is_proto_exempt_section(sec: dict[str, str]) -> bool:
+    """后端逻辑 / 纯接口 / 状态变化等说明节，允许无 proto-ref、无 Tab 绑定。"""
+    body = sec.get("body", "")
+    if re.search(r'\bclass=["\'][^"\']*\bproto-exempt\b', body, flags=re.I):
+        return True
+    if re.search(r'\bdata-proto-exempt=["\']true["\']', body, flags=re.I):
+        return True
+    if "prdkit:proto-exempt" in body:
+        return True
+    text = _section_plain_text(sec)
+    if re.search(r"本(?:节|功能|需求)?[^。\n]{0,40}(?:无需|不需|不用)(?:原型|界面|高保真)", text, re.I):
+        return True
+    return bool(BACKEND_LOGIC_RE.search(text))
 
 
 def _panel_open_positions(html: str) -> dict[str, int]:
@@ -431,8 +502,11 @@ def check_consistency(
     sec_to_toc_tab: dict[str, str] = {ln["sec_id"]: ln["proto_tab"] for ln in toc_links if ln["proto_tab"]}
 
     spec_refs_all: set[str] = set()
+    proto_exempt_secs: set[str] = set()
     for sec in spec_sections:
         spec_refs_all.update(sec["proto_tabs"])
+        if is_proto_exempt_section(sec):
+            proto_exempt_secs.add(sec["sec_id"])
 
     issues: list[Issue] = []
 
@@ -473,10 +547,21 @@ def check_consistency(
                     context=ln,
                 )
             )
+        if ln["proto_tab"] and ln["sec_id"] in proto_exempt_secs:
+            issues.append(
+                Issue(
+                    code="TOC_PROTO_ON_EXEMPT_SEC",
+                    severity="warn",
+                    message=f'目录「{ln["text"]}」为后端/接口类说明，不应设 data-proto-tab',
+                    auto_fixable=True,
+                    context=ln,
+                )
+            )
 
     # 3. 说明节悬空 / proto-ref 无效
     for sec in spec_sections:
         sid = sec["sec_id"]
+        proto_exempt = sid in proto_exempt_secs
         if sid.startswith("sec-3") and sid not in toc_sec_ids and sid not in STRUCTURAL_SEC:
             issues.append(
                 Issue(
@@ -501,7 +586,7 @@ def check_consistency(
                     )
                 )
         toc_tab = sec_to_toc_tab.get(sid, "")
-        if toc_tab and not sec["proto_tabs"]:
+        if not proto_exempt and toc_tab and not sec["proto_tabs"]:
             issues.append(
                 Issue(
                     code="SPEC_MISSING_PROTO_REF",
@@ -516,7 +601,8 @@ def check_consistency(
                 )
             )
         elif (
-            sid.startswith("sec-3")
+            not proto_exempt
+            and sid.startswith("sec-3")
             and proto_tab_ids
             and not sec["proto_tabs"]
             and not toc_tab
@@ -536,6 +622,8 @@ def check_consistency(
     # 目录有 tab 但说明无 proto-ref（与上互补：按 toc 查）
     for ln in toc_links:
         if not ln["proto_tab"] or ln["sec_id"] not in sec_by_id:
+            continue
+        if ln["sec_id"] in proto_exempt_secs:
             continue
         sec = sec_by_id[ln["sec_id"]]
         if not any(_tab_label_match(ln["proto_tab"], proto_tabs.get(ln["proto_tab"], ""), r) for r in sec["proto_tabs"]):
@@ -641,6 +729,22 @@ def apply_fixes(html: str, issues: list[Issue]) -> tuple[str, list[str]]:
         spec = spec[: m.end()] + "\n" + _proto_ref_html(label) + spec[m.end() :]
         applied.append(f"已在 #{sid} 下插入 proto-ref → {label}")
 
+    # TOC_PROTO_ON_EXEMPT_SEC：去掉后端说明节上的 data-proto-tab
+    for issue in fixable:
+        if issue.code != "TOC_PROTO_ON_EXEMPT_SEC":
+            continue
+        sid = issue.context.get("sec_id", "")
+        if sid:
+            toc = re.sub(
+                rf'(<a\s+[^>]*href=["\']#{re.escape(sid)}["\'][^>]*)'
+                r'\s*data-proto-tab=["\'][^"\']+["\']',
+                r"\1",
+                toc,
+                count=1,
+                flags=re.I,
+            )
+            applied.append(f"已移除 #{sid} 目录项上的 data-proto-tab（后端/接口类说明）")
+
     # TOC：补 data-proto-tab
     for issue in fixable:
         if issue.code != "SPEC_MISSING_PROTO_REF":
@@ -735,6 +839,7 @@ def run_check(
     html_path: Path,
     index_path: Path | None = None,
     apply: bool = False,
+    fix_letters: str | None = None,
     cwd: Path | None = None,
 ) -> dict:
     html = html_path.read_text(encoding="utf-8")
@@ -742,29 +847,57 @@ def run_check(
     index_text = index_default
     if index_path and index_path.is_file():
         index_text = index_path.read_text(encoding="utf-8")
-    issues = check_consistency(
-        html,
-        index_text,
-        expected_shell=config_shell,
-        brief_text=brief_text,
-    )
-    applied: list[str] = []
-    if apply and issues:
-        html, applied = apply_fixes(html, issues)
-        html_path.write_text(html, encoding="utf-8")
-        issues = check_consistency(
+    issues = assign_issue_letters(
+        check_consistency(
             html,
             index_text,
             expected_shell=config_shell,
             brief_text=brief_text,
         )
-    return {
+    )
+    applied: list[str] = []
+    fixed_letters: list[str] = []
+    if apply or fix_letters:
+        selected = parse_fix_letters(fix_letters or "")
+        if apply and not fix_letters:
+            to_fix = [i for i in issues if i.auto_fixable]
+        elif not selected:
+            to_fix = [i for i in issues if i.auto_fixable]
+        else:
+            to_fix = [i for i in issues if i.letter in selected and i.auto_fixable]
+            skipped = selected - {i.letter for i in to_fix}
+            manual = [i for i in issues if i.letter in selected and not i.auto_fixable]
+            if skipped:
+                applied.append(f"跳过无匹配或不可自动修编号: {', '.join(sorted(skipped))}")
+            if manual:
+                applied.append(
+                    "需人工处理编号: "
+                    + ", ".join(f"{i.letter}({i.code})" for i in manual)
+                )
+        if to_fix:
+            html, fix_msgs = apply_fixes(html, to_fix)
+            html_path.write_text(html, encoding="utf-8")
+            applied.extend(fix_msgs)
+            fixed_letters = [i.letter for i in to_fix]
+            issues = assign_issue_letters(
+                check_consistency(
+                    html,
+                    index_text,
+                    expected_shell=config_shell,
+                    brief_text=brief_text,
+                )
+            )
+    data = {
         "html_path": str(html_path),
         "issue_count": len(issues),
         "error_count": sum(1 for i in issues if i.severity == "error"),
         "issues": [asdict(i) for i in issues],
         "applied_fixes": applied,
+        "fixed_letters": fixed_letters,
+        "report_path": str((cwd or Path.cwd()) / REPORT_PATH),
     }
+    save_check_report(data, cwd)
+    return data
 
 
 def format_report(data: dict) -> str:
@@ -776,8 +909,25 @@ def format_report(data: dict) -> str:
         lines.append("已自动修复:")
         for a in data["applied_fixes"]:
             lines.append(f"  - {a}")
-    for it in data["issues"]:
-        flag = "❌" if it["severity"] == "error" else "⚠️"
-        fix = " [可自动修复]" if it.get("auto_fixable") else ""
-        lines.append(f"{flag} [{it['code']}] {it['message']}{fix}")
+    issues = data.get("issues") or []
+    if issues:
+        lines.append("")
+        lines.append("异常清单（请确认要修复的编号）:")
+        for it in issues:
+            flag = "❌" if it["severity"] == "error" else "⚠️"
+            letter = it.get("letter") or "?"
+            fix = " [可自动修复]" if it.get("auto_fixable") else " [需人工]"
+            lines.append(f"{letter}. {flag} [{it['code']}] {it['message']}{fix}")
+        auto_letters = [it["letter"] for it in issues if it.get("auto_fixable") and it.get("letter")]
+        if auto_letters:
+            lines.append("")
+            lines.append(
+                "回复要修复的编号（空格或逗号分隔），例如: "
+                + " ".join(auto_letters[:5])
+                + (" …" if len(auto_letters) > 5 else "")
+            )
+            lines.append("或: 全部 / all — 修复所有可自动修项")
+            lines.append(f"CLI: prdkit-html check-consistency --fix-letters {','.join(auto_letters[:3])}")
+    else:
+        lines.append("未发现异常。")
     return "\n".join(lines)

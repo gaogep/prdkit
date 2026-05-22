@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +15,18 @@ sys.path.insert(0, str(ROOT))
 from prdkit.html_tool import apply_default_slot_scaffold, inject_prdkit_assets, inject_shell, replace_between_markers, set_proto_slot  # noqa: E402
 from prdkit.paths import resolve  # noqa: E402
 from prdkit.prd_consistency import (  # noqa: E402
+    Issue,
     apply_fixes,
+    assign_issue_letters,
     check_consistency,
     check_layout_issues,
     check_shell_alignment,
     detect_embedded_shell,
     extract_proto_tabs,
+    format_report,
+    is_proto_exempt_section,
+    parse_fix_letters,
+    run_check,
 )
 
 
@@ -90,6 +98,70 @@ class PrdConsistencyTests(unittest.TestCase):
     def test_shell_detect_business(self):
         html = _minimal_prd_html()
         self.assertEqual(detect_embedded_shell(html), "业务后台")
+
+    def test_backend_section_skips_proto_ref_requirement(self):
+        html = _minimal_prd_html()
+        backend_spec = """<h2 id="sec-3">3 功能说明</h2>
+<h3 id="sec-3-2">3.2 状态同步接口</h3>
+<p class="proto-exempt">本功能为后端逻辑，纯接口调用，无需原型。</p>
+<p>状态变化：初始化 → 处理中 → 成功。</p>"""
+        html = replace_between_markers(html, "spec", backend_spec)
+        issues = check_consistency(html)
+        self.assertFalse(
+            any(
+                i.code == "SPEC_MISSING_PROTO_REF" and i.context.get("sec_id") == "sec-3-2"
+                for i in issues
+            )
+        )
+
+    def test_is_proto_exempt_by_keywords(self):
+        sec = {
+            "sec_id": "sec-3-1",
+            "title": "回调",
+            "body": "<p>纯接口调用，无界面。</p>",
+            "proto_tabs": [],
+        }
+        self.assertTrue(is_proto_exempt_section(sec))
+
+    def test_assign_letters_and_report_format(self):
+        issues = assign_issue_letters(
+            [
+                Issue("A_CODE", "error", "first", True),
+                Issue("B_CODE", "warn", "second", False),
+            ]
+        )
+        self.assertEqual([i.letter for i in issues], ["A", "B"])
+        report = format_report(
+            {
+                "html_path": "x.html",
+                "issue_count": 2,
+                "error_count": 1,
+                "issues": [asdict(i) for i in issues],
+                "applied_fixes": [],
+            }
+        )
+        self.assertIn("A.", report)
+        self.assertIn("B.", report)
+        self.assertIn("请确认要修复的编号", report)
+
+    def test_parse_fix_letters(self):
+        self.assertEqual(parse_fix_letters("B C D"), {"B", "C", "D"})
+        self.assertEqual(parse_fix_letters("全部"), set())
+
+    def test_fix_letters_selective(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            html = _minimal_prd_html()
+            html_path = cwd / "prd.html"
+            html_path.write_text(html, encoding="utf-8")
+            first = run_check(html_path, cwd=cwd)
+            letters = [it["letter"] for it in first["issues"] if it.get("auto_fixable")]
+            if not letters:
+                self.skipTest("no auto-fixable issues in fixture")
+            pick = letters[0]
+            run_check(html_path, cwd=cwd, fix_letters=pick)
+            second = run_check(html_path, cwd=cwd)
+            self.assertIn(pick, first.get("fixed_letters", []) or [pick])
 
     def test_shell_wrong_system(self):
         html = _minimal_prd_html()

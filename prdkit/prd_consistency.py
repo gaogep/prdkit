@@ -7,7 +7,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from prdkit.html_tool import MARKERS, SLOT_END, SLOT_START, replace_between_markers
+from prdkit.html_tool import MARKERS, SLOT_END, SLOT_START, replace_between_markers, validate_shell_structure
 
 INDEX_PATH = Path(".memory/prd_index.md")
 
@@ -23,6 +23,20 @@ FABRICATION_RE = re.compile(
 )
 
 STRUCTURAL_SEC = frozenset({"sec-1", "sec-2", "sec-1-1", "sec-2-1"})
+
+PANEL_ORDER = ("toc", "proto", "spec")
+
+SYSTEM_KEYWORDS: dict[str, list[str]] = {
+    "催收后台": ["催收后台", "催收系统", "催收平台", "贷后催收", "催收作业"],
+    "业务后台": ["业务后台", "运营后台", "支付后台", "订单管理", "风控和金融配置"],
+    "质检后台": ["质检后台", "质检系统", "质检平台", "质检作业"],
+}
+
+MARKER_IN_PANEL = {
+    "toc": MARKERS["toc"][0],
+    "spec": MARKERS["spec"][0],
+    "proto": SLOT_START,
+}
 
 
 @dataclass
@@ -144,7 +158,267 @@ def _tab_label_match(tab_id: str, label: str, ref: str) -> bool:
     return ref_l == tab_id.lower() or ref_l == label.lower() or ref_l in label.lower()
 
 
-def check_consistency(html: str, index_text: str = "") -> list[Issue]:
+def _panel_open_positions(html: str) -> dict[str, int]:
+    positions: dict[str, int] = {}
+    for panel in PANEL_ORDER:
+        m = re.search(
+            rf'<(?:aside|section)\b[^>]*\bdata-panel=["\']{panel}["\']',
+            html,
+            flags=re.I,
+        )
+        if m:
+            positions[panel] = m.start()
+    return positions
+
+
+def _panel_span(html: str, panel: str) -> tuple[int, int] | None:
+    m = re.search(
+        rf'<(?:aside|section)\b[^>]*\bdata-panel=["\']{panel}["\']',
+        html,
+        flags=re.I,
+    )
+    if not m:
+        return None
+    start = m.start()
+    others = []
+    for other in PANEL_ORDER:
+        if other == panel:
+            continue
+        nm = re.search(rf'\bdata-panel=["\']{other}["\']', html[m.end() :], flags=re.I)
+        if nm:
+            others.append(m.end() + nm.start())
+    end = min(others) if others else len(html)
+    return start, end
+
+
+def check_layout_issues(html: str) -> list[Issue]:
+    """三栏 DOM 顺序与标记区是否落在正确面板。"""
+    issues: list[Issue] = []
+    positions = _panel_open_positions(html)
+
+    if len(positions) < 3:
+        missing = [p for p in PANEL_ORDER if p not in positions]
+        issues.append(
+            Issue(
+                code="LAYOUT_PANEL_MISSING",
+                severity="error",
+                message=f'缺少三栏面板 data-panel={"/".join(missing)}，页面布局已损坏',
+                auto_fixable=False,
+                context={"missing": missing},
+            )
+        )
+        return issues
+
+    toc_pos, proto_pos, spec_pos = (
+        positions["toc"],
+        positions["proto"],
+        positions["spec"],
+    )
+    if not (toc_pos < proto_pos < spec_pos):
+        issues.append(
+            Issue(
+                code="LAYOUT_PANEL_ORDER",
+                severity="error",
+                message="三栏顺序错误：应为 目录(toc) → 原型(proto) → 说明(spec)",
+                auto_fixable=False,
+                context={"positions": positions},
+            )
+        )
+        if toc_pos > proto_pos:
+            issues.append(
+                Issue(
+                    code="LAYOUT_TOC_POSITION",
+                    severity="error",
+                    message="目录区位置不对：须在原型区左侧（data-panel=toc 应在 proto 之前）",
+                    auto_fixable=False,
+                )
+            )
+        if proto_pos > spec_pos:
+            issues.append(
+                Issue(
+                    code="LAYOUT_PROTO_POSITION",
+                    severity="error",
+                    message="原型区位置不对：须在说明区左侧（data-panel=proto 应在 spec 之前）",
+                    auto_fixable=False,
+                )
+            )
+        if spec_pos < proto_pos:
+            issues.append(
+                Issue(
+                    code="LAYOUT_SPEC_POSITION",
+                    severity="error",
+                    message="说明区位置不对：须在最右侧（data-panel=spec 应在 proto 之后）",
+                    auto_fixable=False,
+                )
+            )
+
+    for err in validate_shell_structure(html):
+        if "spec" in err and ("之外" in err or "shell" in err.lower()):
+            issues.append(
+                Issue(
+                    code="LAYOUT_SPEC_OUTSIDE_SHELL",
+                    severity="error",
+                    message=err,
+                    auto_fixable=False,
+                )
+            )
+
+    for panel, marker in MARKER_IN_PANEL.items():
+        pos = html.find(marker)
+        if pos < 0:
+            continue
+        span = _panel_span(html, panel)
+        if span and not (span[0] <= pos < span[1]):
+            label = {"toc": "目录", "proto": "原型", "spec": "说明"}[panel]
+            issues.append(
+                Issue(
+                    code=f"LAYOUT_{panel.upper()}_WRONG_PANEL",
+                    severity="error",
+                    message=f"{label}内容标记不在 data-panel={panel} 面板内（{marker} 位置错乱）",
+                    auto_fixable=False,
+                    context={"panel": panel, "marker": marker},
+                )
+            )
+
+    return issues
+
+
+def _read_declared_shell(html: str) -> str | None:
+    m = re.search(
+        r'\bdata-prdkit-shell=["\'](业务后台|催收后台|质检后台)["\']',
+        html,
+        flags=re.I,
+    )
+    return m.group(1).strip() if m else None
+
+
+def detect_embedded_shell(html: str) -> str | None:
+    """根据注入壳 DOM/CSS 指纹推断实际壳（与 init 注入一致）。"""
+    proto_s, proto_e = MARKERS["proto"]
+    embed = _between(html, proto_s, proto_e)
+    if not embed.strip():
+        embed = html
+    window = embed[:12000]
+    has_layout = "app-layout" in window
+    has_sidebar = "app-sidebar" in window
+    if "app-header" in window and not has_layout:
+        return "催收后台"
+    if has_sidebar:
+        if "#001529" in window or "sidebar-bg: #001529" in window:
+            return "业务后台"
+        if "sidebar-bg: #ffffff" in window or "--sidebar-text: #409eff" in window:
+            return "质检后台"
+    declared = _read_declared_shell(html)
+    return declared
+
+
+def infer_expected_shell(
+    index_text: str = "",
+    brief_text: str = "",
+    config_shell: str | None = None,
+) -> str | None:
+    if config_shell in SYSTEM_KEYWORDS:
+        return config_shell
+    combined = f"{brief_text}\n{index_text}"
+    scores = {shell: sum(1 for kw in kws if kw in combined) for shell, kws in SYSTEM_KEYWORDS.items()}
+    best = max(scores, key=scores.get)
+    return best if scores.get(best, 0) > 0 else None
+
+
+def infer_system_from_text(*texts: str) -> dict[str, int]:
+    combined = "\n".join(texts)
+    return {shell: sum(1 for kw in kws if kw in combined) for shell, kws in SYSTEM_KEYWORDS.items()}
+
+
+def check_shell_alignment(
+    html: str,
+    *,
+    expected_shell: str | None = None,
+    index_text: str = "",
+    brief_text: str = "",
+) -> list[Issue]:
+    issues: list[Issue] = []
+    declared = _read_declared_shell(html)
+    actual = detect_embedded_shell(html)
+    expected = expected_shell or infer_expected_shell(index_text, brief_text, declared)
+
+    if not actual:
+        issues.append(
+            Issue(
+                code="SHELL_UNDETECTED",
+                severity="warn",
+                message="无法从原型区识别系统壳，请确认已 prdkit-html init 并注入壳",
+                auto_fixable=False,
+            )
+        )
+        return issues
+
+    if declared and actual and declared != actual:
+        issues.append(
+            Issue(
+                code="SHELL_DOM_MISMATCH",
+                severity="error",
+                message=f'data-prdkit-shell="{declared}" 与壳 DOM 指纹不一致（实测为 {actual}）',
+                auto_fixable=False,
+                context={"declared": declared, "actual": actual},
+            )
+        )
+
+    if expected and actual != expected:
+        issues.append(
+            Issue(
+                code="SHELL_WRONG_SYSTEM",
+                severity="error",
+                message=f"应用壳应为「{expected}」，当前原型为「{actual}」",
+                auto_fixable=False,
+                context={"expected": expected, "actual": actual},
+            )
+        )
+
+    regions = extract_regions(html)
+    text_scores = infer_system_from_text(index_text, brief_text, regions["spec"], regions["toc"])
+    dominant = max(text_scores, key=text_scores.get) if any(text_scores.values()) else None
+    if dominant and text_scores[dominant] >= 2 and actual != dominant:
+        issues.append(
+            Issue(
+                code="SHELL_TEXT_MISMATCH",
+                severity="error",
+                message=f"目录/说明多处提及「{dominant}」，但 init 壳为「{actual}」",
+                auto_fixable=False,
+                context={"text_system": dominant, "actual": actual},
+            )
+        )
+
+    slot = regions["slot"]
+    if actual == "业务后台" and re.search(r"sidebar-nav|顶栏.*横菜单|催收作业", slot, re.I):
+        issues.append(
+            Issue(
+                code="SHELL_SLOT_WRONG_CHROME",
+                severity="error",
+                message="业务后台壳的 slot 内出现催收式顶栏/菜单（禁止在 slot 手绘另一系统壳）",
+                auto_fixable=False,
+            )
+        )
+    if actual == "催收后台" and "app-sidebar" in slot:
+        issues.append(
+            Issue(
+                code="SHELL_SLOT_WRONG_CHROME",
+                severity="error",
+                message="催收后台壳的 slot 内出现侧栏 .app-sidebar（禁止嵌业务/质检壳）",
+                auto_fixable=False,
+            )
+        )
+
+    return issues
+
+
+def check_consistency(
+    html: str,
+    index_text: str = "",
+    *,
+    expected_shell: str | None = None,
+    brief_text: str = "",
+) -> list[Issue]:
     regions = extract_regions(html)
     proto_tabs = extract_proto_tabs(regions["slot"])
     proto_tab_ids = set(proto_tabs)
@@ -299,6 +573,16 @@ def check_consistency(html: str, index_text: str = "") -> list[Issue]:
                 )
             )
 
+    issues.extend(check_layout_issues(html))
+    issues.extend(
+        check_shell_alignment(
+            html,
+            expected_shell=expected_shell,
+            index_text=index_text,
+            brief_text=brief_text,
+        )
+    )
+
     # index 与 HTML 粗对齐
     for name in parse_index_features(index_text):
         if name and name not in regions["spec"] and name not in regions["toc"]:
@@ -426,17 +710,54 @@ def apply_fixes(html: str, issues: list[Issue]) -> tuple[str, list[str]]:
     return html, applied
 
 
-def run_check(html_path: Path, index_path: Path | None = None, apply: bool = False) -> dict:
-    html = html_path.read_text(encoding="utf-8")
+def _load_project_context(cwd: Path | None = None) -> tuple[str | None, str, str]:
+    base = cwd or Path.cwd()
+    config_shell: str | None = None
     index_text = ""
+    brief_text = ""
+    config_path = base / ".memory/prd_output.json"
+    if config_path.is_file():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            config_shell = data.get("shell")
+        except json.JSONDecodeError:
+            pass
+    index_path = base / INDEX_PATH
+    if index_path.is_file():
+        index_text = index_path.read_text(encoding="utf-8")
+    brief_path = base / ".memory/product_brief.md"
+    if brief_path.is_file():
+        brief_text = brief_path.read_text(encoding="utf-8")
+    return config_shell, index_text, brief_text
+
+
+def run_check(
+    html_path: Path,
+    index_path: Path | None = None,
+    apply: bool = False,
+    cwd: Path | None = None,
+) -> dict:
+    html = html_path.read_text(encoding="utf-8")
+    config_shell, index_default, brief_text = _load_project_context(cwd)
+    index_text = index_default
     if index_path and index_path.is_file():
         index_text = index_path.read_text(encoding="utf-8")
-    issues = check_consistency(html, index_text)
+    issues = check_consistency(
+        html,
+        index_text,
+        expected_shell=config_shell,
+        brief_text=brief_text,
+    )
     applied: list[str] = []
     if apply and issues:
         html, applied = apply_fixes(html, issues)
         html_path.write_text(html, encoding="utf-8")
-        issues = check_consistency(html, index_text)
+        issues = check_consistency(
+            html,
+            index_text,
+            expected_shell=config_shell,
+            brief_text=brief_text,
+        )
     return {
         "html_path": str(html_path),
         "issue_count": len(issues),

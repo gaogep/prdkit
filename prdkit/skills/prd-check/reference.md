@@ -1,36 +1,46 @@
 # prd-check 参考
 
-## proto-ref 规范
+## 三栏正确布局（DOM）
+
+`#prd-shell` 内子节点顺序（左→右）：
+
+```text
+[data-panel="toc"] → .resizer-toc → [data-panel="proto"] → .resizer-spec → [data-panel="spec"]
+```
+
+标记区归属：
+
+| 标记 | 必须在 |
+|------|--------|
+| `<!-- prdkit:toc:start -->` | `data-panel="toc"` 内 |
+| `<!-- prdkit:slot:start -->` | `data-panel="proto"` 内（`#prototype-slot`） |
+| `<!-- prdkit:spec:start -->` | `data-panel="spec"` 内 |
+
+常见错乱现象：说明区整栏掉到页面最下方、中间灰色空白（关原型后说明未拉长见模板 CSS）、目录与原型对调。
+
+## 系统壳识别（DOM 指纹）
+
+| 壳 | DOM/CSS 特征 |
+|----|----------------|
+| 催收后台 | 有 `.app-header` + `.app-body`，**无** `.app-layout` / `.app-sidebar` |
+| 业务后台 | `.app-layout` + `.app-sidebar`，CSS 含 `#001529` |
+| 质检后台 | `.app-layout` + `.app-sidebar`，侧栏 `--sidebar-bg: #ffffff`、菜单蓝字 |
+
+`data-prdkit-shell="业务后台|催收后台|质检后台"` 由 `init` 写入，须与上表一致。
+
+## 期望壳推断顺序
+
+1. `.memory/prd_output.json` → `shell`（权威）
+2. `product_brief.md` / `prd_index.md` 关键词
+3. 目录+说明正文多次出现的系统名（≥2 次触发 `SHELL_TEXT_MISMATCH`）
+
+## proto-ref / 目录联动
 
 ```html
 <p class="proto-ref">见中原型 → Tab：<strong>平账审核</strong></p>
-```
-
-`<strong>` 文案应与 `data-tab` 按钮文字一致，或与 `data-proto-tab` 值对应 Tab 的 label。
-
-## 目录联动
-
-```html
 <a href="#sec-3-2" data-proto-tab="audit">3.2 平账审核</a>
 ```
 
-- `href` 必须对应说明区存在的 `id`
-- `data-proto-tab` 必须对应 slot 内 `data-proto-page` / `data-tab`
-
-## 功能节最小集（sec-3-*）
-
-每个需高保真的功能应同时满足：
-
-1. `prd_index.md` 有勾选项
-2. 目录有 `#sec-3-x` 链接
-3. 说明有 `proto-ref` + 实质规则（或 `[TODO]`）
-4. 原型有对应 Tab（若声明「见中原型」）
-
 ## 编造判定
 
-以下视为需替换或标 TODO（除非用户原文即如此）：
-
-- `测试1`、`aaa`、`示例功能点`、`示例小节`
-- 无业务含义的「按钮」「操作」
-
-已写 `[TODO: …]` / `{待填写}` 的不报错。
+`测试1`、`aaa`、`示例功能点` 等；已有 `[TODO]` / `{待填写}` 不报。

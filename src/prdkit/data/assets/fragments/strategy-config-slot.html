@@ -1,0 +1,154 @@
+<div class="proto-config-page">
+  <div class="proto-config-channel">
+    <label class="filter-label" for="cfg-channel">渠道</label>
+    <select id="cfg-channel" class="filter-control filter-control--channel">
+      <option selected>ANDROID</option>
+      <option>IOS</option>
+    </select>
+  </div>
+
+  <section class="proto-list-card proto-config-shell" aria-label="策略配置">
+    <div class="table-toolbar proto-config-head">
+      <h2 class="proto-config-title">策略列表</h2>
+      <div class="proto-config-head-actions">
+        <button type="button" class="btn btn-default">无首策略管理</button>
+        <button type="button" class="btn btn-primary">批量发布策略</button>
+      </div>
+    </div>
+
+    <div class="proto-config-split">
+      <aside class="proto-strategy-rail" aria-label="策略版本列表">
+        <div class="proto-strategy-search">
+          <input type="search" class="filter-control" placeholder="搜索策略名称" aria-label="搜索策略" />
+        </div>
+        <ul class="proto-strategy-list">
+          <li class="proto-strategy-item">
+            <div class="proto-strategy-item-body">
+              <div class="proto-strategy-name">【三档额度】0916 三档额度 0916 三档额度</div>
+              <div class="proto-strategy-meta">2025-09-16 15:00:00</div>
+            </div>
+            <span class="proto-tag proto-tag-b">已全量</span>
+          </li>
+          <li class="proto-strategy-item is-active">
+            <div class="proto-strategy-item-body">
+              <div class="proto-strategy-name">【三档额度】0916 三档额度 0916 三档额度</div>
+              <div class="proto-strategy-meta">2025-09-16 15:00:00</div>
+            </div>
+            <span class="proto-tag proto-tag-r">已清空</span>
+          </li>
+          <li class="proto-strategy-item">
+            <div class="proto-strategy-item-body">
+              <div class="proto-strategy-name">【三档额度】0820 老客提额策略</div>
+              <div class="proto-strategy-meta">2025-08-20 10:30:00</div>
+            </div>
+            <span class="proto-tag proto-tag-b">已全量</span>
+          </li>
+        </ul>
+      </aside>
+
+      <div class="proto-config-detail">
+        <div class="proto-seg-tabs" role="tablist" aria-label="策略类型">
+          <button type="button" class="proto-seg-tab is-active">额度策略</button>
+          <button type="button" class="proto-seg-tab">费率策略</button>
+          <button type="button" class="proto-seg-tab">周期策略</button>
+        </div>
+
+        <div class="proto-config-subbar">
+          <div class="proto-pill-tabs" role="tablist" aria-label="客群">
+            <button type="button" class="proto-pill is-active">全部</button>
+            <button type="button" class="proto-pill">优质</button>
+            <button type="button" class="proto-pill">中等</button>
+            <button type="button" class="proto-pill">普通</button>
+          </div>
+          <div class="proto-config-subsearch">
+            <input type="search" class="filter-control" placeholder="搜索" aria-label="搜索策略明细" />
+          </div>
+        </div>
+
+        <div class="proto-policy-grid">
+          <article class="proto-policy-card">
+            <header class="proto-policy-card-hd">额度策略1</header>
+            <div class="proto-table-scroll-body">
+              <table class="proto-table proto-table-compact">
+                <thead>
+                  <tr>
+                    <th>类型</th>
+                    <th class="col-num">L1限额</th>
+                    <th class="col-num">L2限额</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>新客首贷</td>
+                    <td class="col-num">1-1</td>
+                    <td class="col-num">600,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客首贷</td>
+                    <td class="col-num">2-2</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客复贷</td>
+                    <td class="col-num">3-3</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客首贷</td>
+                    <td class="col-num">4-4</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <footer class="proto-policy-card-ft">
+              <span class="proto-tag proto-tag-w">普通</span>
+              <span class="proto-policy-ref">引用机构: 3</span>
+            </footer>
+          </article>
+
+          <article class="proto-policy-card">
+            <header class="proto-policy-card-hd">额度策略2</header>
+            <div class="proto-table-scroll-body">
+              <table class="proto-table proto-table-compact">
+                <thead>
+                  <tr>
+                    <th>类型</th>
+                    <th class="col-num">L1限额</th>
+                    <th class="col-num">L2限额</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>新客首贷</td>
+                    <td class="col-num">1-1</td>
+                    <td class="col-num">600,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客首贷</td>
+                    <td class="col-num">2-2</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客复贷</td>
+                    <td class="col-num">3-3</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                  <tr>
+                    <td>老客首贷</td>
+                    <td class="col-num">4-4</td>
+                    <td class="col-num">2,500,000</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <footer class="proto-policy-card-ft">
+              <span class="proto-tag proto-tag-b">中等</span>
+              <span class="proto-policy-ref">引用机构: 3</span>
+            </footer>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

@@ -1,0 +1,60 @@
+/* prdkit PRD 原型设计 Token（B 端后台 · Element 基线）
+ * 由 prdkit-html init 注入；slot 片段禁止覆盖这些变量。
+ * 对齐 design-spec §18～§23 与 ui-ux-pro-max 专业后台约束（对比度、过渡、间距）。 */
+
+.prd-embed {
+  --page-pad-x: 24px;
+  --page-bg: #f0f2f5;
+  --card-bg: #ffffff;
+  --card-radius: 4px;
+  --card-shadow: 0 1px 4px rgba(0, 21, 41, 0.06);
+  --card-shadow-hover: 0 2px 8px rgba(0, 21, 41, 0.08);
+
+  --filter-gap-row: 20px;
+  --filter-gap-col: 24px;
+  --filter-label-gap: 8px;
+  --card-gap-y: 16px;
+
+  --color-text-primary: #303133;
+  --color-text-regular: #606266;
+  --color-text-secondary: #909399;
+  --color-text-placeholder: #c0c4cc;
+  --color-border: #dcdfe6;
+  --color-border-light: #ebeef5;
+  --color-fill-light: #f5f7fa;
+  --color-fill-lighter: #fafafa;
+  --color-primary: #409eff;
+  --color-primary-light: #ecf5ff;
+  --color-success: #67c23a;
+  --color-warning: #e6a23c;
+  --color-danger: #f56c6c;
+
+  --font-size-base: 14px;
+  --font-size-small: 13px;
+  --font-size-title: 16px;
+  --line-height-base: 1.5715;
+  --font-weight-title: 600;
+  --font-weight-section: 500;
+
+  --control-height: 32px;
+  --table-cell-pad: 16px;
+
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 150ms;
+  --transition-base: 200ms;
+  --transition-slow: 280ms;
+
+  --z-proto-hotspot: 20;
+  --z-drawer: 100;
+  --z-modal: 200;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prd-embed *,
+  .prd-embed *::before,
+  .prd-embed *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

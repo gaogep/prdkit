@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prdkit"
+version = "0.1.0"
+description = "B端 PRD 工作流：Cursor Skills + Hook 状态机 + 模板资源"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "prdkit" }]
+dependencies = []
+
+[project.scripts]
+prdkit = "prdkit.cli:main"
+prdkit-hook = "prdkit.hook_manager:main"
+prdkit-create-md = "prdkit.create_md:main"
+prdkit-html = "prdkit.html_tool:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prdkit"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src/prdkit", "README.md", "pyproject.toml"]

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRD 文档输出模板 — 三栏可拖拽</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --prd-font: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+      --prd-border: #e4e7ed;
+      --prd-text: #303133;
+      --prd-muted: #909399;
+      --prd-primary: #409eff;
+      --prd-toc-bg: #f8fafc;
+      --prd-spec-bg: #ffffff;
+      --prd-proto-bg: #eef1f6;
+      --col-toc: 260px;
+      --col-spec: 360px;
+      --resizer-w: 6px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: var(--prd-font); font-size: 14px; color: var(--prd-text); background: #dfe3ea; }
+
+    .prd-app { display: flex; flex-direction: column; height: 100vh; min-height: 100vh; }
+    .prd-toolbar {
+      flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      background: #fff; border-bottom: 1px solid var(--prd-border); box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .prd-toolbar .title { font-weight: 600; margin-right: auto; font-size: 13px; color: #606266; }
+    .prd-toolbar button {
+      height: 30px; padding: 0 12px; border: 1px solid var(--prd-border); border-radius: 4px;
+      background: #fff; color: #606266; font-size: 12px; cursor: pointer;
+    }
+    .prd-toolbar button:hover { border-color: #c0c4cc; color: var(--prd-primary); }
+    .prd-toolbar button.is-active { background: #ecf5ff; border-color: #b3d8ff; color: var(--prd-primary); }
+
+    .prd-shell {
+      flex: 1; min-height: 0; min-width: 0;
+      display: flex; flex-direction: row; align-items: stretch;
+    }
+    .panel.is-hidden,
+    .resizer.is-hidden { display: none !important; }
+
+    .panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+    .panel-toc.panel--fixed { flex: 0 0 var(--col-toc); width: var(--col-toc); max-width: 50vw; }
+    .panel-spec.panel--fixed { flex: 0 0 var(--col-spec); width: var(--col-spec); max-width: 55vw; }
+    .panel.panel--grow { flex: 1 1 auto; min-width: 0; width: auto; max-width: none; }
+    /* 关闭原型后说明区须占满剩余宽度（覆盖 panel--fixed 遗留的 width） */
+    #prd-shell > .panel-spec.panel--grow,
+    #prd-shell > .panel-toc.panel--grow {
+      flex: 1 1 0;
+      min-width: 0;
+      width: auto !important;
+      max-width: none !important;
+    }
+    .panel-head {
+      flex-shrink: 0; padding: 10px 14px; font-size: 12px; font-weight: 600; letter-spacing: .04em;
+      text-transform: uppercase; color: var(--prd-muted); border-bottom: 1px solid var(--prd-border);
+    }
+    .panel-body { flex: 1; min-height: 0; overflow: auto; }
+
+    .panel-toc { background: var(--prd-toc-bg); border-right: 1px solid var(--prd-border); }
+    .panel-proto { background: var(--prd-proto-bg); }
+    .panel-spec { background: var(--prd-spec-bg); border-left: 1px solid var(--prd-border); }
+
+    .resizer {
+      flex: 0 0 var(--resizer-w); width: var(--resizer-w); align-self: stretch;
+      background: linear-gradient(90deg, transparent, #d0d7e2 50%, transparent);
+      cursor: col-resize; user-select: none; touch-action: none;
+    }
+    .resizer:hover, .resizer.is-dragging { background: var(--prd-primary); opacity: .35; }
+
+    /* —— 目录树 —— */
+    .toc-tree { padding: 8px 10px 24px; }
+    .toc-group { margin-bottom: 4px; border-radius: 6px; }
+    .toc-group-hd {
+      display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 6px;
+    }
+    .toc-group-hd:hover { background: rgba(64,158,255,.06); }
+    .toc-toggle {
+      width: 22px; height: 22px; border: none; background: transparent; cursor: pointer;
+      color: #909399; font-size: 10px; flex-shrink: 0; border-radius: 4px;
+    }
+    .toc-toggle:hover { background: #ebeef5; color: var(--prd-primary); }
+    .toc-group.is-collapsed .toc-toggle { transform: rotate(-90deg); }
+    .toc-group.is-collapsed .toc-children { display: none; }
+    .toc-l1 { flex: 1; color: #1f2d3d; font-weight: 600; font-size: 13px; text-decoration: none; line-height: 1.4; }
+    .toc-l1:hover { color: var(--prd-primary); }
+    .toc-children { list-style: none; margin: 0; padding: 0 0 4px 28px; }
+    .toc-children a {
+      display: block; padding: 5px 8px; font-size: 12px; color: #606266; text-decoration: none;
+      border-radius: 4px; line-height: 1.4;
+    }
+    .toc-children a:hover { background: #ecf5ff; color: var(--prd-primary); }
+    .toc-children a.is-active { background: #ecf5ff; color: var(--prd-primary); font-weight: 500; }
+
+    /* —— 说明区：两端对齐 + Mermaid 放大 —— */
+    .spec-content { padding: 16px 20px 40px; }
+    .spec-content p, .spec-content li { text-align: justify; text-justify: inter-ideograph; line-height: 1.75; }
+    .spec-content h2 { margin: 0 0 12px; font-size: 16px; scroll-margin-top: 12px; }
+    .spec-content h3 { margin: 20px 0 8px; font-size: 14px; color: #606266; scroll-margin-top: 12px; }
+    .spec-content ul { margin: 0 0 10px 20px; padding: 0; }
+    .mermaid-wrap {
+      position: relative; margin: 12px 0; padding: 10px; background: #fff;
+      border: 1px solid var(--prd-border); border-radius: 8px; cursor: zoom-in;
+    }
+    .mermaid-wrap::after {
+      content: "点击放大"; position: absolute; right: 8px; top: 8px; font-size: 11px;
+      color: var(--prd-primary); background: #ecf5ff; padding: 2px 8px; border-radius: 4px; pointer-events: none;
+    }
+    .mermaid-modal {
+      position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.55); padding: 24px;
+    }
+    .mermaid-modal.is-open { display: flex; }
+    .mermaid-modal-inner {
+      display: flex; align-items: center; justify-content: center;
+      width: min(96vw, 1400px); max-width: 96vw; max-height: 92vh; overflow: auto;
+      background: #fff; border-radius: 10px; padding: 24px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.25);
+    }
+    .mermaid-modal-inner .mermaid { display: flex; justify-content: center; width: 100%; }
+    .mermaid-modal-inner svg {
+      display: block; flex-shrink: 0;
+      max-width: none !important; max-height: none !important;
+    }
+    .mermaid-modal-close {
+      position: fixed; top: 16px; right: 20px; width: 36px; height: 36px; border: none; border-radius: 50%;
+      background: #fff; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+
+    /* —— 原型嵌入区：1440×900 固定画布，外层滚动 —— */
+    .panel-proto .panel-body {
+      display: flex; flex-direction: column; overflow: hidden; padding: 0;
+    }
+    .proto-toolbar-hint {
+      flex-shrink: 0; margin: 0; padding: 8px 12px; font-size: 12px; color: var(--prd-muted);
+      background: #e8ecf2; border-bottom: 1px solid var(--prd-border);
+    }
+    .proto-scroll {
+      flex: 1; min-height: 0; overflow: auto;
+      padding: 20px; background: var(--prd-proto-bg);
+    }
+    .proto-canvas {
+      width: 1440px; height: 900px; min-width: 1440px; min-height: 900px;
+      flex-shrink: 0; background: #fff; border-radius: 6px;
+      box-shadow: 0 4px 20px rgba(0, 21, 41, 0.12);
+      overflow: hidden;
+    }
+    .prd-embed { width: 1440px; height: 900px; min-height: 900px; }
+
+    /* PLACEHOLDER: 将对应 *-原型壳.html 的壳体样式与 DOM 嵌入 .prd-embed；.app-layout 固定 1440×900 */
+    .prd-embed .welcome-block { display: none !important; }
+    .prd-embed .app-main { align-items: stretch !important; justify-content: flex-start !important; padding: 0 !important; overflow: auto !important; }
+    .prd-embed #prototype-slot { margin: 0 !important; max-width: none !important; width: 100% !important; box-shadow: none !important; border: none !important; padding: 0 !important; }
+  </style>
+</head>
+<body>
+  <div class="prd-app">
+    <header class="prd-toolbar">
+      <span class="title">PRD 文档输出模板 · 左目录 / 中原型 / 右说明</span>
+      <button type="button" id="btn-toc" class="is-active" aria-pressed="true">目录</button>
+      <button type="button" id="btn-proto" class="is-active" aria-pressed="true">原型</button>
+      <button type="button" id="btn-spec" class="is-active" aria-pressed="true">说明</button>
+      <button type="button" id="btn-reset">重置布局</button>
+    </header>
+
+    <div class="prd-shell" id="prd-shell">
+      <aside class="panel panel-toc" data-panel="toc">
+        <div class="panel-head">文档目录</div>
+        <div class="panel-body">
+          <nav class="toc-tree" id="toc-tree" aria-label="PRD 目录">
+            <!-- prdkit:toc:start -->
+            <!-- 生成时：按 prd-writing-spec.md §3 章节目录替换；每组用 .toc-group + .toc-children -->
+            <div class="toc-group" data-group>
+              <div class="toc-group-hd">
+                <button type="button" class="toc-toggle" aria-label="展开收起">▾</button>
+                <a class="toc-l1" href="#sec-1">1 需求背景</a>
+              </div>
+              <ul class="toc-children">
+                <li><a href="#sec-1-1">1.1 示例小节</a></li>
+              </ul>
+            </div>
+            <div class="toc-group" data-group>
+              <div class="toc-group-hd">
+                <button type="button" class="toc-toggle" aria-label="展开收起">▾</button>
+                <a class="toc-l1" href="#sec-2">2 功能架构</a>
+              </div>
+              <ul class="toc-children">
+                <li><a href="#sec-2-1">2.1 模块表</a></li>
+              </ul>
+            </div>
+            <div class="toc-group" data-group>
+              <div class="toc-group-hd">
+                <button type="button" class="toc-toggle" aria-label="展开收起">▾</button>
+                <a class="toc-l1" href="#sec-3">3 功能说明</a>
+              </div>
+              <ul class="toc-children">
+                <li><a href="#sec-3-1">3.1 示例功能点</a></li>
+              </ul>
+            </div>
+            <!-- prdkit:toc:end -->
+          </nav>
+        </div>
+      </aside>
+
+      <div class="resizer resizer-toc" data-resize="toc" title="拖动调整目录宽度"></div>
+
+      <section class="panel panel-proto" data-panel="proto">
+        <div class="panel-head">高保真原型</div>
+        <div class="panel-body">
+          <p class="proto-toolbar-hint">原型画布 1440×900 px，展示不全时请在本区域内拖动滚动条查看。</p>
+          <div class="proto-scroll">
+            <div class="proto-canvas">
+            <div class="prd-embed" id="prototype-root">
+              <!-- prdkit:proto:start -->
+              <!-- INJECT: *-原型壳.html 结构 + 业务 DOM；.app-layout 宽高 1440×900 -->
+              <p style="padding:24px;color:#909399;">（模板占位：请注入壳模板与页面原型）</p>
+              <!-- prdkit:proto:end -->
+            </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="resizer resizer-spec" data-resize="spec" title="拖动调整说明区宽度"></div>
+
+      <aside class="panel panel-spec" data-panel="spec">
+        <div class="panel-head">规格说明</div>
+        <div class="panel-body spec-content" id="spec-scroll">
+          <!-- prdkit:spec:start -->
+          <!-- INJECT: 各章节说明；段落自动两端对齐；Mermaid 包在 .mermaid-wrap 内 -->
+          <h2 id="sec-1">1 需求背景</h2>
+          <h3 id="sec-1-1">1.1 示例</h3>
+          <p>说明正文使用两端对齐排版，便于评审阅读。</p>
+          <div class="mermaid-wrap" data-zoom>
+            <div class="mermaid">flowchart LR
+  A[开始] --> B[结束]
+            </div>
+          </div>
+          <!-- prdkit:spec:end -->
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="mermaid-modal" id="mermaid-modal" role="dialog" aria-modal="true" aria-label="图表放大">
+    <button type="button" class="mermaid-modal-close" id="mermaid-modal-close" aria-label="关闭">×</button>
+    <div class="mermaid-modal-inner" id="mermaid-modal-inner"></div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+
+    (function () {
+      var shell = document.getElementById("prd-shell");
+      var root = document.documentElement;
+      var drag = null;
+
+      function setCol(name, px) {
+        if (name === "toc") root.style.setProperty("--col-toc", Math.max(180, px) + "px");
+        if (name === "spec") root.style.setProperty("--col-spec", Math.max(260, px) + "px");
+      }
+
+      document.querySelectorAll("[data-resize]").forEach(function (el) {
+        el.addEventListener("mousedown", function (e) {
+          drag = { type: el.getAttribute("data-resize"), startX: e.clientX };
+          el.classList.add("is-dragging");
+          e.preventDefault();
+        });
+      });
+      document.addEventListener("mousemove", function (e) {
+        if (!drag) return;
+        var dx = e.clientX - drag.startX;
+        drag.startX = e.clientX;
+        if (drag.type === "toc") {
+          var cur = parseInt(getComputedStyle(root).getPropertyValue("--col-toc"), 10) || 260;
+          setCol("toc", cur + dx);
+        } else if (drag.type === "spec") {
+          var cur2 = parseInt(getComputedStyle(root).getPropertyValue("--col-spec"), 10) || 360;
+          setCol("spec", cur2 - dx);
+        }
+      });
+      document.addEventListener("mouseup", function () {
+        document.querySelectorAll(".resizer.is-dragging").forEach(function (r) { r.classList.remove("is-dragging"); });
+        drag = null;
+      });
+
+      var panelToc = shell.querySelector('[data-panel="toc"]');
+      var panelProto = shell.querySelector('[data-panel="proto"]');
+      var panelSpec = shell.querySelector('[data-panel="spec"]');
+      var resizerToc = shell.querySelector(".resizer-toc");
+      var resizerSpec = shell.querySelector(".resizer-spec");
+      var btnToc = document.getElementById("btn-toc");
+      var btnProto = document.getElementById("btn-proto");
+      var btnSpec = document.getElementById("btn-spec");
+
+      function isOn(btn) { return btn.classList.contains("is-active"); }
+
+      function updateLayout() {
+        var tocOn = isOn(btnToc);
+        var protoOn = isOn(btnProto);
+        var specOn = isOn(btnSpec);
+
+        panelToc.classList.toggle("is-hidden", !tocOn);
+        panelProto.classList.toggle("is-hidden", !protoOn);
+        panelSpec.classList.toggle("is-hidden", !specOn);
+
+        resizerToc.classList.toggle("is-hidden", !(tocOn && (protoOn || specOn)));
+        resizerSpec.classList.toggle("is-hidden", !(protoOn && specOn));
+
+        panelToc.classList.toggle("panel--fixed", tocOn && (protoOn || specOn));
+        panelToc.classList.toggle("panel--grow", tocOn && !protoOn && !specOn);
+
+        panelSpec.classList.toggle("panel--fixed", specOn && protoOn);
+        panelSpec.classList.toggle("panel--grow", specOn && !protoOn);
+
+        panelProto.classList.toggle("panel--grow", protoOn);
+
+        /* 仅目录+说明、关闭原型时：说明区占满中间列 */
+        if (tocOn && specOn && !protoOn) {
+          panelSpec.classList.add("panel--grow");
+          panelSpec.classList.remove("panel--fixed");
+        }
+      }
+
+      function togglePanel(btn) {
+        var on = btn.classList.toggle("is-active");
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+        updateLayout();
+      }
+
+      btnToc.addEventListener("click", function () { togglePanel(this); });
+      btnProto.addEventListener("click", function () { togglePanel(this); });
+      btnSpec.addEventListener("click", function () { togglePanel(this); });
+      document.getElementById("btn-reset").addEventListener("click", function () {
+        setCol("toc", 260); setCol("spec", 360);
+        [btnToc, btnProto, btnSpec].forEach(function (b) {
+          b.classList.add("is-active");
+          b.setAttribute("aria-pressed", "true");
+        });
+        updateLayout();
+      });
+      updateLayout();
+
+      document.querySelectorAll("[data-group]").forEach(function (g) {
+        var btn = g.querySelector(".toc-toggle");
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          g.classList.toggle("is-collapsed");
+        });
+      });
+
+      function fitMermaidInModal(inner) {
+        var svg = inner.querySelector("svg");
+        if (!svg) return;
+        var vb = svg.viewBox && svg.viewBox.baseVal;
+        var w = (vb && vb.width) || parseFloat(svg.getAttribute("width")) || svg.getBoundingClientRect().width;
+        var h = (vb && vb.height) || parseFloat(svg.getAttribute("height")) || svg.getBoundingClientRect().height;
+        if (!w || !h) return;
+        var pad = 56;
+        var maxW = window.innerWidth * 0.94 - pad;
+        var maxH = window.innerHeight * 0.88 - pad;
+        var scale = Math.min(maxW / w, maxH / h);
+        scale = Math.max(scale, 1.5);
+        scale = Math.min(scale, 5);
+        svg.style.width = Math.round(w * scale) + "px";
+        svg.style.height = Math.round(h * scale) + "px";
+        svg.setAttribute("width", Math.round(w * scale));
+        svg.setAttribute("height", Math.round(h * scale));
+      }
+
+      document.querySelectorAll(".mermaid-wrap[data-zoom]").forEach(function (wrap) {
+        wrap.addEventListener("click", function () {
+          var modal = document.getElementById("mermaid-modal");
+          var inner = document.getElementById("mermaid-modal-inner");
+          inner.innerHTML = wrap.innerHTML;
+          fitMermaidInModal(inner);
+          modal.classList.add("is-open");
+        });
+      });
+      document.getElementById("mermaid-modal-close").addEventListener("click", function () {
+        document.getElementById("mermaid-modal").classList.remove("is-open");
+      });
+      document.getElementById("mermaid-modal").addEventListener("click", function (e) {
+        if (e.target === this) this.classList.remove("is-open");
+      });
+
+      var specScroll = document.getElementById("spec-scroll");
+      var tocLinks = document.querySelectorAll(".toc-tree a[href^='#']");
+      function onScroll() {
+        var ids = [];
+        tocLinks.forEach(function (a) { var id = a.getAttribute("href").slice(1); var el = document.getElementById(id); if (el) ids.push({ a: a, el: el }); });
+        var top = specScroll.scrollTop + 80;
+        var cur = ids[0];
+        ids.forEach(function (x) { if (x.el.offsetTop <= top) cur = x; });
+        tocLinks.forEach(function (a) { a.classList.remove("is-active"); });
+        if (cur) cur.a.classList.add("is-active");
+      }
+      specScroll.addEventListener("scroll", onScroll);
+    })();
+  </script>
+</body>
+</html>
